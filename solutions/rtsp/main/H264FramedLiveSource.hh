@@ -1,6 +1,8 @@
 #ifndef _H264_FRAMED_LIVE_SOURCE_HH
 #define _H264_FRAMED_LIVE_SOURCE_HH
 
+#include <semaphore.h>
+#include <time.h>
 #include "UsageEnvironment.hh"
 #include "FramedSource.hh"
 
@@ -11,6 +13,7 @@ public:
     EventTriggerId getEventTriggerId() const;
     void setBuf(u_int8_t* buf, unsigned size);
     unsigned getBufSize();
+    void afterDeliver();
 
 protected:
     H264FramedLiveSource(UsageEnvironment& env);
@@ -23,9 +26,12 @@ private:
     void deliverFrame();
 
 private:
+    sem_t _sem;
     EventTriggerId _eventTriggerId;
     u_int8_t* _buf;
     unsigned _bufSize;
 };
+
+void SignalNewFrameData(TaskScheduler* task, H264FramedLiveSource* src);
 
 #endif

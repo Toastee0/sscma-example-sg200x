@@ -6,7 +6,10 @@ H264FramedLiveSource* H264FramedLiveSource::createNew(UsageEnvironment& env) {
 
 H264FramedLiveSource::H264FramedLiveSource(UsageEnvironment& env)
     : FramedSource(env) {
+    sem_init(&_sem, 0, 0);
     _eventTriggerId = envir().taskScheduler().createEventTrigger(deliverFrame0);
+    _buf = NULL;
+    _bufSize = 0;
 }
 
 H264FramedLiveSource::~H264FramedLiveSource() {
@@ -15,9 +18,6 @@ H264FramedLiveSource::~H264FramedLiveSource() {
 }
 
 void H264FramedLiveSource::doGetNextFrame() {
-
-    printf("[chenl] (H264FramedLiveSource::%s)::%d - do to\n", __func__, __LINE__);
-
     return;
 }
 
@@ -27,6 +27,7 @@ void H264FramedLiveSource::deliverFrame0(void* clientData) {
 
 void H264FramedLiveSource::deliverFrame() {
     if (!isCurrentlyAwaitingData()) {
+        printf("[chenl] (H264FramedLiveSource::%s)::%d - we are not ready yet\n", __func__, __LINE__);
         return;
     }
 
@@ -52,6 +53,7 @@ void H264FramedLiveSource::deliverFrame() {
         _bufSize = 0;
     }
     
+    sem_post(&_sem);
     FramedSource::afterGetting(this);
 }
 
@@ -71,6 +73,15 @@ void H264FramedLiveSource::setBuf(u_int8_t* buf, unsigned size) {
 
 unsigned H264FramedLiveSource::getBufSize() {
     return _bufSize;
+}
+
+void H264FramedLiveSource::afterDeliver() {
+    struct timespec ts;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+    // ts.tv_sec += 1;
+    ts.tv_nsec += 100 * 1000;
+    sem_timedwait(&_sem, &ts);
 }
 
 void SignalNewFrameData(TaskScheduler* task, H264FramedLiveSource* src) {
