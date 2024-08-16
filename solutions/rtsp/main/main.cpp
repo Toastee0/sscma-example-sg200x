@@ -1,38 +1,44 @@
 #include <thread>
 
-#include "BasicUsageEnvironment.hh"
 #include "liveMedia.hh"
 #include "H264LiveVideoServerMediaSubsession.hh"
 
 #include "announceURL.hh"
 
-UsageEnvironment* env;
+#include "defs.hh"
+
 H264LiveVideoServerMediaSubsession* session = NULL;
 
-// To make the second and subsequent client for each stream reuse the same
-// input stream as the first client (rather than playing the file from the
-// start for each client), change the following "False" to "True":
-Boolean reuseFirstSource = False;
-
 static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
-			   char const* streamName, char const* inputFileName); // forward
+			   char const* streamName, char const* inputFileName) {
+    UsageEnvironment& env = rtspServer->envir();
 
-void initRtsp() {
-  // Begin by setting up our usage environment:
-  TaskScheduler* scheduler = BasicTaskScheduler::createNew();
-  env = BasicUsageEnvironment::createNew(*scheduler);
+    env << "\n\"" << streamName << "\" stream, from the file \""
+        << inputFileName << "\"\n";
+    announceURL(rtspServer, sms);
+}
 
-  RTSPServer* rtspServer = RTSPServer::createNew(*env, 8555);
-  if (rtspServer == NULL) {
-    *env << "Failed to create RTSP server: " << env->getResultMsg() << "\n";
-    exit(1);
-  }
+int createRtsp(RTSP_SERVER_CTX_T &rtspCtx, int port, int bufSize = 600000) {
+    rtspCtx.scheduler = BasicTaskScheduler::createNew();
+    rtspCtx.env = BasicUsageEnvironment::createNew(*rtspCtx.scheduler);
+    rtspCtx.rtspServer = RTSPServer::createNew(*rtspCtx.env, port);
 
-  char const* descriptionString = "Session streamed by \"rtspServer\"";
+    if (rtspCtx.rtspServer == NULL) {
+        *rtspCtx.env << "Failed to create RTSP server: " << rtspCtx.env->getResultMsg() << "\n";
+        return 1;
+    }
 
-  OutPacketBuffer::maxSize = 2000000;
-  {
-    char const* streamName = "live";
+    OutPacketBuffer::maxSize = bufSize;
+    rtspCtx.status = 0;
+
+    return 0;
+}
+
+void createLiveSession(RTSP_SERVER_CTX_T &rtspCtx, const char* streamName, Boolean reuseFirstSource) {
+    char const* descriptionString = "Session streamed by \"rtspServer\"";
+    UsageEnvironment* env = rtspCtx.env;
+    RTSPServer* rtspServer = rtspCtx.rtspServer;
+
     ServerMediaSession* sms = ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
     session = H264LiveVideoServerMediaSubsession::createNew(*env, reuseFirstSource);
     sms->addSubsession(session);
@@ -40,26 +46,46 @@ void initRtsp() {
 
     rtspServer->envir() << "\n\"" << streamName << "\" stream, read frames from a file\n";
     announceURL(rtspServer, sms);
-  }
-
-  {
-    char const* streamName = "h264";
-    char const* inputFileName = "test.264";
-    ServerMediaSession* sms = ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
-    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, inputFileName, reuseFirstSource));
-    rtspServer->addServerMediaSession(sms);
-
-    announceStream(rtspServer, sms, streamName, inputFileName);
-  }
-
-  env->taskScheduler().doEventLoop(); // does not return
 }
 
-// 150000
-int read_one_frame(FILE* fp, uint8_t* ptr) {
+void createH264FileSession(RTSP_SERVER_CTX_T &rtspCtx, const char* streamName, const char* fileName) {
+    char const* descriptionString = "Session streamed by \"rtspServer\"";
+    UsageEnvironment* env = rtspCtx.env;
+    RTSPServer* rtspServer = rtspCtx.rtspServer;
+
+    ServerMediaSession* sms = ServerMediaSession::createNew(*env, streamName, streamName, descriptionString);
+    sms->addSubsession(H264VideoFileServerMediaSubsession::createNew(*env, fileName, False));
+    rtspServer->addServerMediaSession(sms);
+
+    announceStream(rtspServer, sms, streamName, fileName);
+}
+
+void initRtsp() {
+    int ret = 0;
+    RTSP_SERVER_CTX_T rtspCtx;
+
+    ret = createRtsp(rtspCtx, 8555);
+    if (ret) return;
+
+    createLiveSession(rtspCtx, "live", True);
+    createH264FileSession(rtspCtx, "h264", "test.264");
+
+    rtspCtx.env->taskScheduler().doEventLoop(&(rtspCtx.status));
+}
+
+int getFileSize(FILE* fp, const char* fileName) {
+    int fileSize = 0;
+
+    fseek(fp, 0L, SEEK_END);
+    fileSize = ftell(fp);
+    fseek(fp, 0L, SEEK_SET);
+
+    return fileSize;
+}
+
+int readFrame(FILE* fp, uint8_t* ptr) {
     int size = 0;
     static uint8_t hd[4] = { 0 };
-    // printf("read one frame\n");
     
     if (fread(ptr, 1, 4, fp) < 4) {
         printf("read start error\n");
@@ -91,21 +117,21 @@ int read_one_frame(FILE* fp, uint8_t* ptr) {
 
 int main(int argc, char** argv) {
     const int MAX_SIZE = 150000;
+    const char* fileName = "test.264";
+    FILE* fp = NULL;
+    int fileSize = 0, curSize = 0;
 
     std::thread th(initRtsp);
 
-    const char* fileName = "test.264";
-    FILE* fp = fopen(fileName, "rb");
-    int fileSize = 0, curSize = 0;
-
-    fseek(fp, 0L, SEEK_END);
-    fileSize = ftell(fp);
-    fseek(fp, 0L, SEEK_SET);
+    fp = fopen(fileName, "rb");
+    if (fp == NULL) {
+        printf("open %s file failed here\n", fileName);
+        return 1;
+    }
+    fileSize = getFileSize(fp, fileName);
     printf("%s file size: %d\n", fileName, fileSize);
 
-    int bufSize = 0;
     uint8_t* buf = (uint8_t* ) malloc(MAX_SIZE);
-
     while (1) {
         if (session == NULL || !session->isStart()) {
             printf("not start now\n");
@@ -113,10 +139,9 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // fprintf(stderr, "this is main function\n");
         if (curSize < fileSize) {
-            int tmp = read_one_frame(fp, buf);
-            usleep(10 * 1000);
+            int tmp = readFrame(fp, buf);
+            usleep(30 * 1000);
             if (tmp) {
                 curSize += tmp;
                 session->writeData(buf, tmp);
@@ -126,18 +151,7 @@ int main(int argc, char** argv) {
             fseek(fp, 0L, SEEK_SET);
             printf("restart to read file[%d - %d]\n", curSize, fileSize);
         }
-        // usleep(300);
-        // sleep(1);
     }
 
-  return 0;
-}
-
-static void announceStream(RTSPServer* rtspServer, ServerMediaSession* sms,
-			   char const* streamName, char const* inputFileName) {
-  UsageEnvironment& env = rtspServer->envir();
-
-  env << "\n\"" << streamName << "\" stream, from the file \""
-      << inputFileName << "\"\n";
-  announceURL(rtspServer, sms);
+    return 0;
 }
