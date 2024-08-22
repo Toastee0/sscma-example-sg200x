@@ -3,6 +3,7 @@ set(SYSROOT $ENV{reCamera_sysroot})
 component_register(
     COMPONENT_NAME main
     SRCS ${CMAKE_CURRENT_LIST_DIR}/main.cpp
+    SRCS ${CMAKE_CURRENT_LIST_DIR}/ma_transport_rtsp.cpp
     SRCS ${CMAKE_CURRENT_LIST_DIR}/H264FramedLiveSource.cpp
     SRCS ${CMAKE_CURRENT_LIST_DIR}/H264LiveVideoServerMediaSubsession.cpp
     SRCS ${CMAKE_CURRENT_LIST_DIR}/announceURL.cpp
@@ -15,4 +16,5 @@ component_register(
     LIBRARY_DIRS ${SYSROOT}/usr/lib/
 
     PRIVATE_REQUIREDS liveMedia groupsock BasicUsageEnvironment UsageEnvironment ssl crypto
+    PRIVATE_REQUIREDS sscma cares
 )
