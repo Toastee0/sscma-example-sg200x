@@ -2,6 +2,8 @@
 #include "app_ipcam_venc.h"
 #include "rtsp_demo.h"
 
+#include "ma_transport_rtsp.h"
+
 /**************************************************************************
  *                              M A C R O S                               *
  **************************************************************************/
@@ -80,6 +82,7 @@ static void app_ipcam_Rtsp_Disconnect(const char *ip, CVI_VOID *arg)
     APP_PROF_LOG_PRINT(LEVEL_INFO, "rtsp client disconnected: %s\n", ip);
 }
 
+#if 0
 int app_ipcam_rtsp_Server_Destroy(CVI_VOID)
 {
     CVI_S32 s32Ret = CVI_SUCCESS;
@@ -214,6 +217,47 @@ int fpStreamingSendToRtsp(void* pData, void* pArgs, void *pUserData)
     }
 
     return CVI_SUCCESS;
+}
+#endif
+
+int app_ipcam_rtsp_Server_Destroy(CVI_VOID) {
+    return CVI_SUCCESS;
+}
+
+int app_ipcam_Rtsp_Server_Create(CVI_VOID) {
+    std::thread th(initRtspServer);
+    th.detach();
+
+    return CVI_SUCCESS;
+}
+
+int fpStreamingSendToRtsp(void* pData, void* pArgs, void *pUserData) {
+    APP_DATA_CTX_S* pstDataCtx = (APP_DATA_CTX_S*)pArgs;
+    APP_DATA_PARAM_S* pstDataParam = &pstDataCtx->stDataParam;
+    APP_VENC_CHN_CFG_S* pstVencChnCfg = (APP_VENC_CHN_CFG_S*)pstDataParam->pParam;
+    VENC_CHN VencChn = pstVencChnCfg->VencChn;
+
+    CVI_S32 s32Ret = CVI_SUCCESS;
+    VENC_STREAM_S* pstStream = (VENC_STREAM_S*)pData;
+    VENC_PACK_S* ppack;
+
+    if (0 == pstStream->u32PackCount) {
+        APP_PROF_LOG_PRINT(LEVEL_ERROR, "pstStream->u32PackCount is %d\n", pstStream->u32PackCount);
+        return s32Ret;
+    }
+
+    // printf("[chenl] (%s)::%d - Count: %d, chn: %d\n", __func__, __LINE__, pstStream->u32PackCount, VencChn);
+    for (CVI_U32 i = 0; i < pstStream->u32PackCount; i++) {
+        ppack = &pstStream->pstPack[i];
+        uint8_t *dataPtr = ppack->pu8Addr + ppack->u32Offset;
+        uint32_t dataLen = ppack->u32Len - ppack->u32Offset;
+
+        session->writeData(dataPtr, dataLen);
+        APP_PROF_LOG_PRINT(LEVEL_DEBUG, "pack[%d], PTS = %lu, Addr = %p, Len = 0x%X, Offset = 0x%X DataType=%d\n",
+            i, ppack->u64PTS, ppack->pu8Addr, ppack->u32Len, ppack->u32Offset, ppack->DataType.enH265EType);
+    }
+
+    return s32Ret;
 }
 
 int initRtsp(uint8_t chEnableFlag)

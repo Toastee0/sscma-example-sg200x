@@ -3,6 +3,7 @@
 #include <syslog.h>
 #include <unistd.h>
 
+#include "ma_transport_rtsp.h"
 #include "rtsp_demo.h"
 #include "video.h"
 
