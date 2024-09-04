@@ -27,7 +27,7 @@ void H264FramedLiveSource::deliverFrame0(void* clientData) {
 
 void H264FramedLiveSource::deliverFrame() {
     if (!isCurrentlyAwaitingData()) {
-        printf("[chenl] (H264FramedLiveSource::%s)::%d - we are not ready yet\n", __func__, __LINE__);
+        // printf("[chenl] (H264FramedLiveSource::%s)::%d - we are not ready yet\n", __func__, __LINE__);
         return;
     }
 
